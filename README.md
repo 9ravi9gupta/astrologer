@@ -1,1 +1,1 @@
-# astrologer
+# Astrological Insight Generator
