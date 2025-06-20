@@ -1,0 +1,76 @@
+### ------------api.py-----------------------
+from fastapi import FastAPI, Request
+from vedastro_api import get_astrological_summary
+from translator import translate_to_hindi
+
+app = FastAPI()
+
+@app.post("/predict")
+async def predict(request: Request):
+    data = await request.json()
+    name = data["name"]
+    birth_date = data["birth_date"]
+    birth_time = data["birth_time"]
+    birth_place = data["birth_place"]
+    language = data.get("language", "en")
+
+    result = get_astrological_summary(name, birth_date, birth_time, birth_place, language)
+    return result
+
+### ---------------vedastro_api.py-------------------------
+from vedastro import GeoLocation, Time, Calculate, PlanetName
+from models.llm_stub import generate_text
+
+def get_astrological_summary(name, birth_date, birth_time, birth_place, language="en"):
+    datetime_str = f"{birth_time} {birth_date} +05:30"  # Defaulting to IST
+    geo = GeoLocation(birth_place, 0, 0)  # Dummy lat/lon; replace with real lookup
+    time = Time(datetime_str, geo)
+
+    sun_data = Calculate.AllPlanetData(PlanetName.Sun, time)
+    sign = sun_data.Sign.ToString()
+
+    prompt = f"Name: {name}\nZodiac: {sign}\nProvide a daily astrological insight."
+    insight = generate_text(name=name, zodiac=sign, template=prompt)
+
+    if language == "hi":
+        from translator import translate_to_hindi
+        insight = translate_to_hindi(insight)
+
+    return {"zodiac": sign, "insight": insight, "language": language}
+
+### -----------------translator.py----------------------
+def translate_to_hindi(text: str) -> str:
+    return "[Hindi translation of]: " + text
+
+### ----------------models/llm_stub.py-----------------
+def generate_text(name, zodiac, template):
+    return f"{template}\nToday, you may feel empowered by the presence of the Sun in {zodiac}. Embrace opportunities."  # Stub
+
+### -------------------gradio_app.py----------------------
+import gradio as gr
+from vedastro_api import get_astrological_summary
+
+def generate_insight(name, birth_date, birth_time, birth_place, language):
+    result = get_astrological_summary(name, birth_date, birth_time, birth_place, language)
+    return f"Zodiac: {result['zodiac']}\n\nInsight: {result['insight']}"
+
+demo = gr.Interface(
+    fn=generate_insight,
+    inputs=[
+        gr.Textbox(label="Name"),
+        gr.Textbox(label="Birth Date (YYYY-MM-DD)"),
+        gr.Textbox(label="Birth Time (HH:MM)"),
+        gr.Textbox(label="Birth Place"),
+        gr.Radio(choices=["en", "hi"], label="Language", value="en")
+    ],
+    outputs="text",
+    title="Astrological Insight Generator (VedAstro Enhanced)",
+    description="Uses VedAstro to calculate planetary positions and generate daily astrological insights."
+)
+
+if __name__ == "__main__":
+    demo.launch()
+
+### Sample Test
+# curl -X POST http://localhost:8000/predict -H "Content-Type: application/json" \
+# -d '{"name": "Ritika", "birth_date": "1995-08-20", "birth_time": "14:30", "birth_place": "Jaipur, India", "language": "en"}'
